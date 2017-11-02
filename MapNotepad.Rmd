@@ -1,0 +1,123 @@
+---
+runtime: shiny
+title: "Choropleth Map by USA Zipcode Level"
+output: 
+  flexdashboard::flex_dashboard:
+  orientation: columns
+vertical_layout: scroll
+social: [ "twitter", "facebook", "menu" ]
+source_code: embed
+theme: flatly
+
+---
+  
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+# Load packages and initialize data here
+library(flexdashboard)
+library(rgdal)
+library(leaflet)
+library(dplyr)
+library(magrittr)
+library(readr)
+library(knitr)
+library(shiny)
+```
+
+Map
+=========================
+  
+Sidebar {.sidebar} 
+----------------------------
+Here is a leaflet map showing the estimated population at a state-level by zipcode. The data was obtained from [USA Zipcode](http://www.unitedstateszipcodes.org). 
+
+```{r, echo=FALSE}
+hr()
+
+selectInput("state", label = "Select a state: ",
+            choices = state.abb, selected = "NY")
+
+```
+
+Made for fun by [Jasmine Dumas](http://jasdumas.github.io/)
+
+Map {data-height=1000}
+----------------------------
+  
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# USA level zipcode for 2015
+load("usa.RData")
+
+# read in csv file with state specific state data
+all_usa_zip <- read_csv("zip_code_database.csv")
+
+
+# state specific zipcodes and data
+STATE_SHP <- reactive({
+  
+  
+  # filter down to the specific state and select 
+  
+  specific_state <- all_usa_zip %>% dplyr::filter(state == input$state) %>% 
+    select(zip, primary_city, county, irs_estimated_population_2014)
+  
+  # change the column names for the merge by arguement
+  
+  colnames(specific_state) <- c("zipcode", "City", "County", "irs_estimated_population_2014")
+  
+  # change the zipcode to a factor to full join the table
+  
+  specific_state$zipcode = factor(specific_state$zipcode)
+  
+  # remove redundant County label in County column
+  
+  specific_state$County <- gsub("County", "", specific_state$County) 
+  # there is probably a space after now but not concerned about that
+  
+  # full join the data set 
+  
+  state_join <- dplyr::full_join(usa@data, specific_state)
+  
+  # remove rows with NA's - i.e. remove everything except the choosen state
+  
+  state_clean = na.omit(state_join)
+  
+  # Merge a Spatial object having a data.frame (i.e. merging of non-spatial attributes).
+  # all.x = F removes NA values that are not common to both datasets
+  
+  STATE_SHP <- sp::merge(x=usa, y=state_clean, all.x = F)
+  
+}) # END OF REACTIVE
+
+# color palette
+renderLeaflet({
+  
+  #   pal <- colorNumeric(
+  #   palette = "Blues",
+  #   domain = STATE_SHP()$irs_estimated_population_2014
+  # )
+  pal <- colorBin(palette = "BuPu", domain = STATE_SHP()$irs_estimated_population_2014, bins = 8)
+  
+  state_popup <- paste0("County: ", 
+                        STATE_SHP()$County, 
+                        "City: ", 
+                        STATE_SHP()$City, 
+                        "Est. Population: ",
+                        STATE_SHP()$irs_estimated_population_2014)  
+  # plot the map
+  leaflet(data = STATE_SHP()) %>%
+    addProviderTiles("CartoDB.Positron") %>%
+    addPolygons(fillColor = ~pal(irs_estimated_population_2014), 
+                fillOpacity = 0.7, 
+                color = "#BDBDC3", 
+                weight = 1, 
+                popup = state_popup) %>%
+    addLegend("bottomleft", 
+              pal = pal, 
+              values = ~irs_estimated_population_2014,
+              title = "Est. Population",
+              opacity = 1)
+  
+  
+})
